@@ -1,0 +1,33 @@
+[project]
+name = "spiking-ecg"
+version = "0.1.0"
+description = "Comparación educativa de MLP y SNN temporal en ECG5000"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "torch>=2.6,<3",
+    "snntorch==0.9.4",
+    "numpy>=2,<3",
+    "scikit-learn>=1.6,<2",
+    "matplotlib>=3.9,<4",
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<10"]
+
+[project.scripts]
+spiking-ecg = "spiking_ecg.experiment:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
