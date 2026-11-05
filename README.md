@@ -1,225 +1,185 @@
 # spiking-ecg
 
-Mini proyecto educativo en PyTorch y snnTorch: comparar un MLP con una SNN LIF
-para distinguir **normal (clase original 1 → 0)** de **resto (2–5 → 1)**.
-La clase positiva de precision, recall y F1 es **resto**. No es una herramienta médica.
+Proyecto educativo y reproducible en **PyTorch y snnTorch** para comparar un MLP
+con una red de neuronas Leaky Integrate-and-Fire (LIF) sobre ECG5000. Incluye el
+baseline, un laboratorio visual y una investigación sobre duración del entrenamiento
+y retención de membrana. Permite seguir el proceso: implementación, diagnóstico,
+hipótesis, controles y resultados observados. No es una herramienta médica.
 
-## Reproducir
+La tarea es binaria: **normal (clase original 1 → 0)** frente a **resto (2–5 → 1)**.
+La clase positiva de precision, recall y F1 es **resto**.
 
-Se necesita [uv](https://docs.astral.sh/uv/). Se usa Python 3.12 y PyTorch CPU para
-reducir requisitos y facilitar la repetición. `uv.lock` fija las versiones resueltas.
+## Reproducir y probar
+
+Se necesita [uv](https://docs.astral.sh/uv/). Python 3.12 y las dependencias CPU
+están fijadas en `.python-version`, `pyproject.toml` y `uv.lock`.
 
 ```bash
 uv sync --frozen --group dev
 uv run pytest -q
 
-# Prueba corta real; descarga y verifica ECG5000 automáticamente.
-uv run spiking-ecg train --model both --epochs 5 --output results/short-new
-
-# Experimento de referencia: 20 épocas, semilla 42, 32 neuronas ocultas.
+# Baselines: entrena y después evalúa el test oficial.
 uv run spiking-ecg train --model both --epochs 20 --output results/reproduction
 
-# Reevalúa el checkpoint elegido por validación, sin entrenar.
+# Reevaluar un checkpoint sin entrenar.
 uv run spiking-ecg evaluate \
   --checkpoint results/reproduction/snn/best.pt --output results/evaluation
+
+# Selección de hiperparámetros: SOLO train y validación, nunca test.
+uv run python -m spiking_ecg.research \
+  --seeds 42 43 44 --max-epochs 60 --patience 10 \
+  --output results/research-beta-repeat --report-dir reports/research-beta-repeat
 ```
 
-El primer `uv sync` y la descarga necesitan Internet; las pruebas usan datos
-sintéticos y funcionan sin red. Los siguientes entrenamientos reutilizan el ZIP
-en `data/`. Si cambia su checksum, el programa se detiene: no acepta silenciosamente
-otros datos. En entornos con HOME de solo lectura se puede anteponer
-`MPLCONFIGDIR=/tmp/spiking-ecg-matplotlib` a los comandos.
-Cada nuevo entrenamiento necesita una carpeta sin `best.pt` para evitar sobrescribirlo.
+El primer `uv sync` y la descarga del dataset necesitan Internet. Las pruebas usan
+exclusivamente datos sintéticos y no necesitan red. Incluyen shapes, reset, gradientes,
+repetibilidad, checkpoints, figuras y protección del test en el barrido. Con Node
+instalado también contrastan el backward del laboratorio con snnTorch; sin Node,
+siete pruebas del laboratorio se omiten explícitamente.
+
+Usa carpetas de salida nuevas para no sobrescribir experimentos. En entornos con
+HOME de solo lectura, configura `MPLCONFIGDIR=/tmp/spiking-ecg-matplotlib`.
+Los comandos se muestran para reproducción futura; el cierre documental no ejecuta
+nuevos experimentos ECG5000.
+
+## Dataset y protocolo
+
+[ECG5000, archivo académico UEA/UCR](https://timeseriesclassification.com/description.php?Dataset=ECG5000)
+contiene latidos interpolados a **140 puntos** de un solo paciente con insuficiencia
+cardíaca, registro `chf07`. Las etiquetas se obtuvieron automáticamente. Una etiqueta
+de latido «normal» no implica que el paciente esté sano.
+
+Se conserva el split oficial: **500 train / 4500 test**. Del train se extraen
+**400 entrenamiento / 100 validación**, estratificados por etiqueta binaria. El ZIP
+académico se descarga de forma reproducible y se verifica mediante SHA-256. Una
+media y desviación escalar se ajustan únicamente con los 400 ejemplos de entrenamiento.
+Se guardan índices, checksum y normalización; no se aprende preprocesado del test.
+
+El baseline guarda el checkpoint de menor pérdida de validación y evalúa test al
+terminar. **No se debe usar ese comando para barridos de selección.** `research.py`
+abre exclusivamente `ECG5000_TRAIN.txt` y acepta solo los splits train/val. El test
+**ya se observó durante el desarrollo inicial**: evitar nuevas consultas no restaura
+su independencia. Toda la investigación se presenta como exploratoria.
+
+## Modelos y fundamentos SNN
+
+| Modelo | Arquitectura | Parámetros |
+|---|---|---:|
+| MLP | 140 → Linear(32) → ReLU → Linear(2) | 4578 |
+| SNN baseline | 140 pasos de Linear(1 → 32) → LIF; tasas en 7 ventanas → Linear(224 → 2) | 514 |
+
+El MLP recibe el latido completo. La SNN recibe una **amplitud real por paso como
+corriente continua; la entrada no es un tren de spikes**. Los spikes binarios se
+generan dentro de las neuronas LIF. La membrana acumula corriente y retiene una
+fracción `beta` del estado anterior:
+
+```text
+I[t] = W x[t] + b
+U[t] = beta * U[t-1] + I[t] - spike[t-1] * umbral
+spike[t] = 1 si U[t] > umbral; 0 en otro caso
+```
+
+El baseline usa **beta=0.9, umbral=1** y reset por sustracción retardado: un spike
+reduce la membrana en la siguiente actualización. Cada latido comienza con estado
+cero; la membrana no se reinicia al cambiar de ventana. Las siete tasas locales
+conservan posición aproximada dentro del latido frente a una media global.
+
+El escalón se mantiene binario en forward; en backward se sustituye su derivada
+por `1 / (1 + 25 * abs(U - umbral))**2`. Se usa **BPTT completo sobre 140 pasos**,
+con la decisión de reset desacoplada del gradiente. Adam (`lr=0.001`, batch 64) y
+cross entropy entrenan ambos modelos. Fijar semillas y algoritmos deterministas
+facilita repetirlos, sin garantizar identidad entre plataformas o versiones.
+
+Las decisiones de arquitectura, ecuaciones y formatos de artefactos se explican
+en [docs/MODEL.md](docs/MODEL.md). Ambos modelos comparten protocolo y ancho oculto,
+pero no igualan capacidad ni coste computacional.
+
+## Resultados originales: test del baseline
+
+Resultados conservados de **20 épocas, semilla 42**, seleccionando checkpoint por
+pérdida de validación. Estas cifras corresponden al **test oficial**:
+
+| Modelo | Accuracy test | F1 resto | Precision resto | Recall resto |
+|---|---:|---:|---:|---:|
+| MLP | 0.9800 | 0.9755 | 0.9972 | 0.9546 |
+| SNN, beta=0.9 y 7 ventanas | 0.8720 | 0.8378 | 0.8862 | 0.7944 |
+
+El [informe original](reports/README.md) conserva métricas, matrices de confusión,
+configuración y el ensayo inicial de media global, que obtuvo F1=0. Los datos
+numéricos completos están en [temporal_20.json](reports/temporal_20.json).
+Los baselines y estos resultados no se sustituyen con el barrido posterior.
+
+## Investigación: beta y duración, solo validación
+
+Se compararon **beta=0.7/0.9/0.95 × semillas 42/43/44** manteniendo el mismo split
+400/100 y los demás parámetros. Las semillas cambian inicialización y orden de
+batches, emparejados entre betas; **no son tres splits independientes**.
+
+Se permitió hasta 60 épocas, con early stopping por pérdida de validación:
+paciencia 10, mejora mínima 0.0001 y mínimo 20 épocas. El checkpoint conserva el
+mínimo estricto de esa pérdida. Las nueve ejecuciones llegaron a 60 y seleccionaron
+esa época; no se activó early stopping ni se demostró convergencia.
+
+**Validación, media ± desviación estándar muestral de tres semillas:**
+
+| Beta | Loss ≤20 | Loss ≤60 | F1 ≤60 | Recall ≤60 |
+|---|---:|---:|---:|---:|
+| 0.7 | 0.3234 ± 0.0090 | 0.1307 ± 0.0093 | 0.9643 ± 0.0207 | 0.9683 ± 0.0275 |
+| 0.9 | 0.3579 ± 0.0171 | 0.1766 ± 0.0142 | 0.9280 ± 0.0252 | 0.9683 ± 0.0275 |
+| 0.95 | 0.3855 ± 0.0138 | 0.2105 ± 0.0213 | 0.9053 ± 0.0151 | 0.9841 ± 0.0137 |
+
+Ampliar de 20 a 60 mejoró loss, F1 y recall en las nueve ejecuciones. Beta=0.7 fue
+el candidato por loss/F1 en este split; beta=0.95 obtuvo más recall con más falsos
+positivos. Se midieron tasas por neurona/paso y 2–3 neuronas silenciosas al seleccionar
+checkpoint. Estas tasas no son Hz ni medidas de eficiencia energética.
+
+**No comparar directamente esta tabla de validación con la tabla de test anterior.**
+El [informe experimental completo](reports/research-beta/README.md) distingue
+observaciones, hipótesis y límites estadísticos e incluye [CSV](reports/research-beta/comparison.csv),
+[protocolo](reports/research-beta/protocol.json) e historiales JSON.
+Figuras: [curvas de entrenamiento](reports/research-beta/training.png),
+[actividad y silencio](reports/research-beta/activity.png) y
+[20 frente a 60 épocas](reports/research-beta/horizons.png).
 
 ## Interactive SNN Laboratory
 
-Abre el [laboratorio interactivo publicado](https://luissm01.github.io/spiking-ecg/)
-en un navegador con JavaScript habilitado. También puedes abrir directamente el
-[HTML autónomo](docs/index.html) en `docs/index.html`. No requiere instalación,
-servidor, Python ni acceso a datos. Como alternativa, puedes servirlo localmente:
+Abre el [laboratorio publicado](https://luissm01.github.io/spiking-ecg/) o el
+[HTML autónomo](docs/index.html), con JavaScript habilitado. **Reproducir**, **Siguiente
+paso** y **Reiniciar tiempo** recorren una traza precalculada. Cambia señal, neurona
+y beta para observar membrana, raster y ventanas; predicción y gradientes siempre
+corresponden a los 140 pasos completos. **Entrenar 1/10 pasos** modifica pesos del
+ejemplo y **Restaurar pesos** recupera sus valores iniciales.
 
-```bash
-uv run python -m http.server 8000 --directory docs
-# Abrir http://localhost:8000
-```
-
-Pulsa **Reproducir** o **Siguiente paso** para recorrer las 140 amplitudes de una
-señal sintética y observar corriente, potencial de membrana y raster de 32 neuronas
-LIF. Cambia señal, neurona o beta; inspecciona las siete ventanas y la clasificación.
-El cursor recorre una secuencia completa precalculada: las gráficas, probabilidades
-y gradientes corresponden al latido completo, no solo al instante señalado.
-**Entrenar 1 paso / 10 pasos** aplica SGD al ejemplo seleccionado; **Restaurar pesos**
-recupera los pesos de ejemplo y **Reiniciar tiempo** solo devuelve el cursor al inicio.
-
-| Laboratorio HTML | Experimento real |
+| Laboratorio | Experimento real |
 |---|---|
-| Dos señales sintéticas y pesos de ejemplo | ECG5000 y checkpoints entrenados |
-| JavaScript, backward didáctico manual con BPTT | PyTorch y snnTorch con autograd |
-| SGD sobre un ejemplo, learning rate 0.08 | Adam sobre batches, learning rate 0.001 por defecto |
+| Señales sintéticas y pesos de ejemplo | ECG5000 y checkpoints entrenados |
+| JavaScript y backward didáctico manual | PyTorch, snnTorch y autograd |
+| SGD sobre un ejemplo (`lr=0.08`) | Adam sobre batches (`lr=0.001`) |
 
-Ambos usan entrada analógica (no spikes de entrada), LIF con reset por sustracción
-retardado, umbral estricto `U > 1`, surrogate `fast_sigmoid(slope=25)` y lectura por
-siete ventanas. El backward manual excluye la derivada de la decisión de reset,
-conservando la recurrencia temporal de membrana. Los controles no cargan checkpoints
-reales ni reproducen sus métricas; una actualización no garantiza reducir la pérdida
-y el simulador no demuestra generalización ni eficacia clínica.
+El laboratorio ilustra la dinámica y los surrogate gradients; no carga resultados
+reales ni demuestra generalización. SGD con surrogate gradients no garantiza reducir
+la pérdida en cada paso. La [verificación del laboratorio](docs/VERIFICATION.md)
+documenta su contraste con snnTorch y las pruebas en navegador. Pages sirve `main/docs`
+con `.nojekyll`; no se necesita build adicional.
 
-GitHub Pages está publicado desde **main /docs**, con `docs/.nojekyll` para servir
-el HTML estático sin workflow de build adicional. Se verificaron el estado `built`,
-la respuesta HTTP 200 y la coincidencia del HTML público con `docs/index.html`.
-Los cambios posteriores en `docs/` se publican al completar el despliegue de Pages.
-La configuración está en **Settings → Pages → Deploy from a branch → main → /docs**.
-[Instrucciones oficiales de GitHub](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site).
+## Limitaciones y trabajo futuro
 
-La revisión matemática y las comprobaciones se documentan en
-[docs/VERIFICATION.md](docs/VERIFICATION.md). `uv run pytest -q` incluye el contraste
-numérico del JavaScript con nuestro modelo si Node está instalado; sin Node esas
-pruebas se omiten y las pruebas originales siguen disponibles.
+El dataset procede de **un solo paciente**, con etiquetas automáticas y latidos
+interpolados; el split oficial puede contener latidos próximos temporalmente.
+Agrupar clases 2–5 oculta diferencias entre tipos de latido. No hay validación
+clínica ni evidencia de generalización entre pacientes.
 
-## Datos y protocolo
+Las tres semillas comparten solo 100 ejemplos de validación (42 positivos), y su
+SD no es un intervalo de confianza. La selección reiterada puede sobreajustar esa
+validación; el test históricamente observado tampoco es confirmatorio. Los modelos
+no están igualados por parámetros. No se midieron energía, FPGA ni ventaja de latencia.
 
-La fuente es el [archivo académico UEA/UCR de ECG5000](https://timeseriesclassification.com/description.php?Dataset=ECG5000).
-Se descarga su ZIP desde `https://www.timeseriesclassification.com/aeon-toolkit/ECG5000.zip`;
-el SHA-256 esperado se fija en `data.py`. Se leen exclusivamente los dos archivos
-oficiales `ECG5000_TRAIN.txt` y `ECG5000_TEST.txt`, nunca el archivo combinado.
+Trabajo futuro: acordar el compromiso entre precision y recall, contrastar el
+candidato beta=0.7 con más splits y semillas, controlar capacidad y evaluar con
+pacientes independientes. No se incorpora ninguno de esos experimentos en este cierre.
 
-- Train oficial: **500** latidos; test oficial: **4500**; longitud: **140**.
-- Del train se extrae un 20 % de validación estratificada sobre la etiqueta binaria:
-  **400 entrenamiento, 100 validación**. No se intenta estratificar las cinco clases
-  originales, algunas de las cuales son muy escasas.
-- Una media y desviación escalar se ajustan exclusivamente con los 400 latidos de
-  entrenamiento. Se aplican a todos los splits y a ambos modelos. No se ajustan
-  estadísticas con validación/test, ni se normaliza cada posición por separado.
-- Adam, cross entropy sin ponderación, batch 64, learning rate 0.001, semilla 42.
-  Se fijan las semillas Python/NumPy/PyTorch, un hilo CPU y algoritmos deterministas.
-- Se guarda la época de menor **pérdida de validación**; empates conservan la primera.
-  El test se evalúa después de cargar ese checkpoint, no después de cada época.
-  No se ajusta el umbral con el test: se usa argmax de dos logits.
-
-Los índices de train/validación, distribución de clases, checksum y normalización
-se guardan en `data.json` y en el checkpoint. La reevaluación comprueba que coinciden.
-La repetición exacta requiere el mismo software y plataforma; una semilla no garantiza
-identidad numérica entre versiones o dispositivos distintos.
-
-## Arquitectura y decisiones
-
-| Modelo | Recorrido | Lectura | Parámetros por defecto |
-|---|---|---|---:|
-| MLP | 140 → Linear(32) → ReLU | Linear(2) | 4578 |
-| SNN | 140 pasos de Linear(1 → 32) → LIF(32) | Tasas en 7 ventanas de 20 pasos → Linear(224 → 2) | 514 |
-
-El MLP ve el latido entero a la vez y proporciona un baseline sencillo con acceso
-directo a la forma de onda. La SNN recibe **una amplitud real por instante**, que una
-proyección aprendida convierte en corriente, también con valores negativos. **La
-entrada no es un tren de spikes**: no hay codificación Poisson, rate coding de
-entrada ni expansión artificial a otros 140 pasos. Los spikes se generan internamente.
-
-Una sola capa LIF permite inspeccionar todo el estado sin introducir convoluciones,
-recurrencia aprendida o varias capas difíciles de interpretar. Sus pesos se comparten
-en el tiempo. El readout es convencional y produce logits, sin softmax antes de
-cross entropy. La media por ventanas conserva posición temporal aproximada y es
-más pequeña que concatenar los 140 estados completos. No se reinicia la membrana
-en los límites de las ventanas. `--readout-bins 1` reproduce la lectura por media
-global; `--readout-bins` debe dividir 140.
-
-La comparación comparte datos, optimizador, épocas y ancho oculto, **no iguala
-número de parámetros ni presupuesto computacional**. No permite atribuir diferencias
-de rendimiento exclusivamente al tipo de neurona. Para una comparación de investigación
-harían falta controles de capacidad, varias semillas y selección de hiperparámetros
-limitada a validación.
-
-## Dinámica LIF y gradientes
-
-Para cada neurona y paso `t`, con estado inicial `u[-1] = 0`:
-
-```text
-i[t] = W x[t] + b
-u[t] = beta * u[t-1] + i[t] - s[t-1] * theta
-s[t] = 1 si u[t] > theta; 0 en otro caso
-beta = 0.9; theta = 1.0
-```
-
-Se usa `snntorch.Leaky`, reset por sustracción y `reset_delay=True`: el spike se
-calcula con la membrana actual y su sustracción se aplica en la siguiente actualización.
-Por eso una traza puede quedar por encima del umbral en el paso del spike. No hay
-periodo refractario; beta y umbral son fijos. Los 140 puntos son muestras interpoladas
-del latido, no un eje en milisegundos; beta no se interpreta aquí como una constante
-de tiempo fisiológica calibrada.
-
-La función escalón no tiene una derivada útil para entrenar. En el forward sigue
-produciendo spikes binarios; solo en el backward se usa la derivada sustituta
-`1 / (1 + 25 * abs(u - theta))**2`, de `surrogate.fast_sigmoid(slope=25)`.
-Se aplica BPTT completo sobre los 140 pasos sin separar el grafo entre instantes;
-snntorch desacopla del gradiente la decisión del reset. Los tensores de visualización
-se separan del grafo, pero los spikes que alimentan el readout conservan sus gradientes.
-Véanse las referencias de [Leaky](https://snntorch.readthedocs.io/en/latest/snn.neurons_leaky.html)
-y [surrogate gradients](https://snntorch.readthedocs.io/en/latest/snntorch.surrogate.html).
-
-Cada `forward` crea una membrana de ceros de tamaño `[batch, hidden]` y la pasa
-explícitamente a la LIF. Así cada secuencia tiene estado independiente, incluso
-cuando cambia el tamaño del último batch. No se reutiliza el estado final del
-latido anterior. Reiniciar entre secuencias es distinto del reset por umbral dentro
-de una secuencia. Se comprueba en entrenamiento que el primer backward tiene un
-gradiente finito y no nulo en los pesos de entrada; esto no garantiza convergencia.
-
-## Artefactos
-
-Cada modelo guarda en `results/<experimento>/<modelo>/`:
-
-- `best.pt`: pesos, arquitectura, época, métricas de validación, normalización y split.
-  Sirve para inferencia/evaluación; no incluye estado de Adam para reanudar entrenamiento.
-- `config.json`, `data.json`, `gradient_check.json`, `history.json`, `summary.json`
-  y `test_metrics.json`: configuración, trazabilidad, curvas y métricas numéricas.
-- `test_predictions.npz`: etiqueta real y predicción en el orden del test oficial.
-- `signals.png`: primeros cinco latidos de cada grupo del train normalizado.
-- `training.png`: pérdida y accuracy; train se acumula durante las actualizaciones,
-  validación se mide al finalizar la época.
-- `confusion.png`: filas reales y columnas predichas, orden `[normal, resto]`.
-- Solo SNN: `activity_0.png`, `activity_1.png` con señal, raster de todas las neuronas
-  y membrana de las cuatro más activas. Se elige el primer latido de test de cada
-  clase, independientemente del acierto. Los `.npz` correspondientes conservan las
-  trazas completas `[140, hidden]`, índice, etiqueta y predicción.
-
-`comparison.json` compara ambos modelos. `data/` y `results/` están ignorados por Git;
-el informe numérico de la ejecución local se conserva en `reports/`.
-
-## Pruebas y resultados reales
-
-Las pruebas comprueban shapes, spikes binarios, reset entre batches/secuencias,
-gradientes hasta entrada y pesos, dos backwards sucesivos, repetibilidad con semilla,
-separación train/val, ausencia de estadísticas del test en el escalado, rechazo de un
-ZIP corrupto, métricas, entrenamiento mínimo de ambos modelos, carga de checkpoint
-y generación de figuras. Los datos sintéticos de las pruebas no son resultados ECG.
-
-Los resultados medidos, comandos y observaciones están en [reports/README.md](reports/README.md).
-Se conserva también el ensayo de media global: fracasó en validación (F1=0) a 20
-épocas. La lectura por ventanas se añadió para reducir esa pérdida de información
-temporal. Se observaron resultados de test durante este desarrollo; se reportan
-como **exploración educativa**, no como una estimación independiente confirmatoria.
-
-## Límites e ideas para una entrevista
-
-ECG5000 procede de un único paciente, registro `chf07` de 20 horas con insuficiencia
-cardíaca congestiva. Las etiquetas se obtuvieron automáticamente; los latidos fueron
-extraídos e interpolados a longitud fija. Agrupar 2–5 oculta diferencias entre tipos
-de latido. El split oficial no demuestra generalización a otros pacientes y puede
-contener latidos cercanos temporalmente. No hay validación clínica ni diagnóstico
-de personas sanas a partir de la etiqueta «normal» de un latido.
-
-No se han medido consumo energético, latencia comparativa ni ejecución en FPGA.
-Los spikes y el menor número de parámetros no prueban eficiencia energética:
-esta implementación simula 140 pasos con operaciones densas en CPU y BPTT conserva
-estados intermedios durante entrenamiento.
-
-Tres conceptos que conviene poder explicar con las figuras y el código:
-
-1. **Memoria LIF y reset:** fuga, integración, umbral y sustracción; diferencia entre
-   reset por spike y reinicialización entre latidos. Entrada analógica frente a spikes internos.
-2. **Surrogate gradient y BPTT:** por qué la derivada del escalón no sirve, qué
-   aproximación se usa en backward y por qué un gradiente no nulo no asegura aprendizaje.
-3. **Representación y evaluación temporal:** qué información elimina una media
-   global, por qué usar ventanas y por qué el protocolo, capacidad y generalización
-   entre pacientes condicionan cualquier conclusión sobre MLP frente a SNN.
-
-Código: `data.py` prepara datos; `models.py` define redes; `experiment.py` entrena y
-evalúa; `plots.py` visualiza; `tests/test_project.py` verifica el comportamiento.
+El código permanece pequeño: [datos](src/spiking_ecg/data.py),
+[modelos](src/spiking_ecg/models.py), [baseline](src/spiking_ecg/experiment.py),
+[barrido](src/spiking_ecg/research.py), [gráficos](src/spiking_ecg/plots.py) y [pruebas](tests/).
+Datasets, checkpoints y salidas pesadas quedan fuera de Git en `data/` y `results/`;
+`reports/` conserva solo documentación, métricas, protocolo y figuras.

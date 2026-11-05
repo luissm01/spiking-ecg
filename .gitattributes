@@ -1,0 +1,2 @@
+# Conservar los bytes CRLF exportados por csv.writer sin falsos avisos de espacios.
+*.csv -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

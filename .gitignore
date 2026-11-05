@@ -4,6 +4,9 @@ __pycache__/
 *.egg-info/
 data/
 results/
+*.pt
+*.pth
+*.ckpt
 .env
 .env.*
 !.env.example

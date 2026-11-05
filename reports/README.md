@@ -52,14 +52,15 @@ mínimos sintéticos, checkpoints, figuras y repetibilidad con semilla fija.
 Los PNG, checkpoints, historias y predicciones completas permanecen localmente
 en `results/temporal/`. Algunos ejemplos:
 
-- [Raster y membranas, resto](../results/temporal/snn/activity_1.png).
-- [Raster y membranas, normal](../results/temporal/snn/activity_0.png).
-- [Curvas SNN](../results/temporal/snn/training.png).
-- [Matriz de confusión SNN](../results/temporal/snn/confusion.png).
-- [Curvas MLP](../results/temporal/mlp/training.png).
+- Raster y membranas, resto: `results/temporal/snn/activity_1.png`.
+- Raster y membranas, normal: `results/temporal/snn/activity_0.png`.
+- Curvas SNN: `results/temporal/snn/training.png`.
+- Matriz de confusión SNN: `results/temporal/snn/confusion.png`.
+- Curvas MLP: `results/temporal/mlp/training.png`.
 
-Esos enlaces solo están disponibles tras generar los artefactos: `results/` está
-ignorado por Git. No se han añadido los datos ni los checkpoints al control de versiones.
+Esas rutas, relativas a la raíz del repositorio, solo están disponibles tras generar
+los artefactos: `results/` está ignorado por Git. No se han añadido los datos ni los
+checkpoints al control de versiones.
 
 ## Ensayo inicial y decisión de arquitectura
 
