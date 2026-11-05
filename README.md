@@ -31,6 +31,52 @@ otros datos. En entornos con HOME de solo lectura se puede anteponer
 `MPLCONFIGDIR=/tmp/spiking-ecg-matplotlib` a los comandos.
 Cada nuevo entrenamiento necesita una carpeta sin `best.pt` para evitar sobrescribirlo.
 
+## Interactive SNN Laboratory
+
+El [laboratorio interactivo](docs/index.html) es un HTML autónomo: abre
+`docs/index.html` en un navegador con JavaScript habilitado. No requiere instalación,
+servidor, Python ni acceso a datos. Como alternativa, puedes servirlo localmente:
+
+```bash
+uv run python -m http.server 8000 --directory docs
+# Abrir http://localhost:8000
+```
+
+Pulsa **Reproducir** o **Siguiente paso** para recorrer las 140 amplitudes de una
+señal sintética y observar corriente, potencial de membrana y raster de 32 neuronas
+LIF. Cambia señal, neurona o beta; inspecciona las siete ventanas y la clasificación.
+El cursor recorre una secuencia completa precalculada: las gráficas, probabilidades
+y gradientes corresponden al latido completo, no solo al instante señalado.
+**Entrenar 1 paso / 10 pasos** aplica SGD al ejemplo seleccionado; **Restaurar pesos**
+recupera los pesos de ejemplo y **Reiniciar tiempo** solo devuelve el cursor al inicio.
+
+| Laboratorio HTML | Experimento real |
+|---|---|
+| Dos señales sintéticas y pesos de ejemplo | ECG5000 y checkpoints entrenados |
+| JavaScript, backward didáctico manual con BPTT | PyTorch y snnTorch con autograd |
+| SGD sobre un ejemplo, learning rate 0.08 | Adam sobre batches, learning rate 0.001 por defecto |
+
+Ambos usan entrada analógica (no spikes de entrada), LIF con reset por sustracción
+retardado, umbral estricto `U > 1`, surrogate `fast_sigmoid(slope=25)` y lectura por
+siete ventanas. El backward manual excluye la derivada de la decisión de reset,
+conservando la recurrencia temporal de membrana. Los controles no cargan checkpoints
+reales ni reproducen sus métricas; una actualización no garantiza reducir la pérdida
+y el simulador no demuestra generalización ni eficacia clínica.
+
+`docs/.nojekyll` prepara la carpeta como sitio estático para GitHub Pages desde
+**main /docs**, sin workflow de build adicional. Pages está deshabilitado según la
+comprobación de esta integración; no se incluye una URL pública sin verificar.
+Para habilitarlo, un administrador debe ir a **Settings → Pages → Build and deployment**,
+elegir **Deploy from a branch**, seleccionar **main** y **/docs** y pulsar **Save**.
+Esperar a que el despliegue de Pages termine en **Actions**, abrir **Visit site** y
+comprobar que carga el laboratorio. Solo entonces debe añadirse el enlace público
+a este README. [Instrucciones oficiales de GitHub](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site).
+
+La revisión matemática y las comprobaciones se documentan en
+[docs/VERIFICATION.md](docs/VERIFICATION.md). `uv run pytest -q` incluye el contraste
+numérico del JavaScript con nuestro modelo si Node está instalado; sin Node esas
+pruebas se omiten y las pruebas originales siguen disponibles.
+
 ## Datos y protocolo
 
 La fuente es el [archivo académico UEA/UCR de ECG5000](https://timeseriesclassification.com/description.php?Dataset=ECG5000).
