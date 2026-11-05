@@ -33,8 +33,9 @@ Cada nuevo entrenamiento necesita una carpeta sin `best.pt` para evitar sobrescr
 
 ## Interactive SNN Laboratory
 
-El [laboratorio interactivo](docs/index.html) es un HTML autónomo: abre
-`docs/index.html` en un navegador con JavaScript habilitado. No requiere instalación,
+Abre el [laboratorio interactivo publicado](https://luissm01.github.io/spiking-ecg/)
+en un navegador con JavaScript habilitado. También puedes abrir directamente el
+[HTML autónomo](docs/index.html) en `docs/index.html`. No requiere instalación,
 servidor, Python ni acceso a datos. Como alternativa, puedes servirlo localmente:
 
 ```bash
@@ -63,14 +64,12 @@ conservando la recurrencia temporal de membrana. Los controles no cargan checkpo
 reales ni reproducen sus métricas; una actualización no garantiza reducir la pérdida
 y el simulador no demuestra generalización ni eficacia clínica.
 
-`docs/.nojekyll` prepara la carpeta como sitio estático para GitHub Pages desde
-**main /docs**, sin workflow de build adicional. Pages está deshabilitado según la
-comprobación de esta integración; no se incluye una URL pública sin verificar.
-Para habilitarlo, un administrador debe ir a **Settings → Pages → Build and deployment**,
-elegir **Deploy from a branch**, seleccionar **main** y **/docs** y pulsar **Save**.
-Esperar a que el despliegue de Pages termine en **Actions**, abrir **Visit site** y
-comprobar que carga el laboratorio. Solo entonces debe añadirse el enlace público
-a este README. [Instrucciones oficiales de GitHub](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site).
+GitHub Pages está publicado desde **main /docs**, con `docs/.nojekyll` para servir
+el HTML estático sin workflow de build adicional. Se verificaron el estado `built`,
+la respuesta HTTP 200 y la coincidencia del HTML público con `docs/index.html`.
+Los cambios posteriores en `docs/` se publican al completar el despliegue de Pages.
+La configuración está en **Settings → Pages → Deploy from a branch → main → /docs**.
+[Instrucciones oficiales de GitHub](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site).
 
 La revisión matemática y las comprobaciones se documentan en
 [docs/VERIFICATION.md](docs/VERIFICATION.md). `uv run pytest -q` incluye el contraste

@@ -90,11 +90,15 @@ npm install --prefix /tmp/spiking-ecg-browser playwright@1.56.1
 NODE_PATH=/tmp/spiking-ecg-browser/node_modules node tests/check_lab_browser.cjs
 ```
 
-## Publicación pendiente
+## Publicación verificada
 
-La API de GitHub devolvió `has_pages=false` y el endpoint Pages devolvió HTTP 404.
-No se cambió la configuración del servicio ni se añadió una URL pública supuesta.
-La carpeta queda lista para seleccionar **Deploy from a branch → main → /docs**
-en **Settings → Pages**. Tras **Save**, esperar el despliegue correcto en Actions y
-comprobar **Visit site** antes de añadir su URL al README. La publicación real
-requiere esa activación; un push por sí solo no la habilita.
+En la integración inicial Pages estaba deshabilitado y no se añadió una URL
+supuesta. Tras la activación por el propietario, el 5 de noviembre de 2026 se
+verificó el [laboratorio público](https://luissm01.github.io/spiking-ecg/):
+
+- La API de Pages devolvió `status=built`, origen `branch=main`, `path=/docs`.
+- La URL pública respondió HTTP 200.
+- El HTML descargado coincidió byte a byte con `docs/index.html` (`cmp`).
+
+Se añadió el enlace público al README y se retiró el aviso de activación pendiente.
+No quedan pasos manuales de publicación pendientes.
